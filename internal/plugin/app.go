@@ -80,6 +80,8 @@ func (a *App) handleMethod(method string, request []byte) ([]byte, error) {
 		return a.interceptBeforeAuth(request)
 	case MethodRequestInterceptAfter:
 		return a.interceptAfterAuth(request)
+	case MethodResponseInterceptAfter:
+		return a.interceptModelList(request)
 	case MethodRequestComplete:
 		return a.completeRequest(request)
 	case MethodSchedulerPick:
@@ -191,6 +193,7 @@ func registration() Registration {
 		Capabilities: Capabilities{
 			RequestInterceptor:        true,
 			RequestLifecyclePlugin:    true,
+			ResponseInterceptor:       true,
 			UsagePlugin:               true,
 			ManagementAPI:             true,
 			Scheduler:                 true,
