@@ -86,6 +86,16 @@ func TestModelListRemovesDeniedModels(t *testing.T) {
 	}
 }
 
+func TestModelListSkipsFilteringForTheManagementCatalog(t *testing.T) {
+	app := restrictApp(t, billing.RouteRule{Models: []string{"a"}})
+	headers := credentialHeader("bearer", testAPIKey)
+	headers.Set(ManagementCatalogHeader, "full")
+	response := interceptList(t, app, headers, `{"object":"list","data":[{"id":"b"},{"id":"a"}]}`)
+	if len(response.Body) != 0 {
+		t.Fatalf("a management catalog was curated: %s", response.Body)
+	}
+}
+
 func TestModelListCanEmptyTheCatalog(t *testing.T) {
 	app := restrictApp(t, billing.RouteRule{Models: []string{"z"}})
 	response := interceptList(t, app, credentialHeader("bearer", testAPIKey),

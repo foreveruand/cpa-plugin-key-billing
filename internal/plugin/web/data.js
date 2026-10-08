@@ -529,7 +529,10 @@ async function fetchConfiguredAPIKeys() {
 }
 
 async function fetchModels(account, key) {
-  const result = await api("GET", "/v1/models", null, { raw: true, key, auxiliaryCredential: !account });
+  // The management catalog drives model pricing and routing configuration, so it
+  // must list every model the host offers rather than the subset one key may call.
+  const headers = account ? undefined : { "X-Cpa-Key-Billing-Catalog": "full" };
+  const result = await api("GET", "/v1/models", null, { raw: true, key, auxiliaryCredential: !account, headers });
   const rows = requireArray(result?.data, m("ui.cpa_model_list"));
   if (rows.some((row) => !row || typeof row.id !== "string" || !row.id.trim())) throw new UIError(m("ui.invalid_cpa_model_list"));
   const models = [...new Set(rows.map((row) => row.id))].sort(compareModelId);
