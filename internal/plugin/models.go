@@ -16,6 +16,13 @@ import (
 // "models".
 var modelCatalogKeys = []string{"data", "models"}
 
+// ManagementCatalogHeader lets the plugin's own management UI request the full
+// catalog instead of a key's accessible subset. Pricing and routing cannot be
+// configured against a filtered list. The header only affects the listing: the
+// host still enforces model access per request, so a client that sends it sees
+// names it could already ask for but still cannot call.
+const ManagementCatalogHeader = "X-Cpa-Key-Billing-Catalog"
+
 // catalogEntry carries only the fields that identify a listing entry: OpenAI,
 // Claude and Grok use "id", the Codex client "slug", and Gemini "name".
 type catalogEntry struct {
@@ -37,6 +44,10 @@ func (a *App) interceptModelList(raw []byte) ([]byte, error) {
 	}
 	// A model listing is the only response without a model; completions fill it.
 	if strings.TrimSpace(req.Model) != "" || strings.TrimSpace(req.RequestedModel) != "" || len(req.Body) == 0 {
+		return OKEnvelope(ResponseInterceptResponse{})
+	}
+	// The plugin's own management UI needs the unfiltered catalog.
+	if strings.EqualFold(strings.TrimSpace(req.RequestHeaders.Get(ManagementCatalogHeader)), "full") {
 		return OKEnvelope(ResponseInterceptResponse{})
 	}
 	decision := billing.RoutingDecision{}
