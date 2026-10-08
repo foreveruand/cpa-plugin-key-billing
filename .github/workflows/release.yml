@@ -61,24 +61,6 @@ jobs:
             arch: arm64
             extension: so
             image: quay.io/pypa/manylinux2014_aarch64
-          - target: windows-amd64
-            runner: windows-2025
-            os: windows
-            arch: amd64
-            extension: dll
-            cc: gcc
-            cc_target: x86_64-w64-mingw32
-            objdump: objdump
-            cache_salt: runner-ucrt-gcc
-          - target: windows-arm64
-            runner: windows-11-arm
-            os: windows
-            arch: arm64
-            extension: dll
-            cc: aarch64-w64-mingw32-gcc
-            cc_target: aarch64-w64-windows-gnu
-            objdump: llvm-objdump
-            cache_salt: llvm-mingw-20260616
 
     steps:
       - name: Check out repository
@@ -93,24 +75,9 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Verify native runner architecture
-        if: matrix.os != 'windows'
         run: |
           test "$(go env GOOS)" = "${{ matrix.os }}"
           test "$(go env GOARCH)" = "${{ matrix.arch }}"
-
-      - name: Verify native Windows runner architecture
-        if: matrix.os == 'windows'
-        shell: pwsh
-        env:
-          TARGET_OS: ${{ matrix.os }}
-          TARGET_ARCH: ${{ matrix.arch }}
-        run: |
-          if ((go env GOOS) -ne $env:TARGET_OS) {
-            throw "Expected GOOS=$($env:TARGET_OS), got $(go env GOOS)"
-          }
-          if ((go env GOARCH) -ne $env:TARGET_ARCH) {
-            throw "Expected GOARCH=$($env:TARGET_ARCH), got $(go env GOARCH)"
-          }
 
       - name: Restore manylinux build cache
         if: matrix.os == 'linux'
@@ -120,59 +87,6 @@ jobs:
           key: manylinux2014-${{ matrix.arch }}-${{ hashFiles('go.mod', 'go.sum', '**/*.go', 'internal/plugin/web/**') }}
           restore-keys: |
             manylinux2014-${{ matrix.arch }}-
-
-      - name: Restore Windows ARM64 CGO toolchain
-        id: windows-arm64-toolchain
-        if: matrix.os == 'windows' && matrix.arch == 'arm64'
-        uses: actions/cache/restore@v5
-        with:
-          path: ${{ runner.temp }}/llvm-mingw-20260616-ucrt-aarch64
-          key: llvm-mingw-windows-arm64-20260616-312593669435bd0b
-
-      - name: Set up Windows ARM64 CGO toolchain
-        if: matrix.os == 'windows' && matrix.arch == 'arm64'
-        shell: pwsh
-        run: |
-          $toolchainVersion = "20260616"
-          $archiveName = "llvm-mingw-$toolchainVersion-ucrt-aarch64.zip"
-          $expectedSha256 = "312593669435bd0bfc1a43ac3fba23c8b27e0610bade88b2738e5a01702a99ba"
-          $archivePath = Join-Path $env:RUNNER_TEMP $archiveName
-          $toolchainRoot = Join-Path $env:RUNNER_TEMP "llvm-mingw-$toolchainVersion-ucrt-aarch64"
-          $downloadUrl = "https://github.com/mstorsjo/llvm-mingw/releases/download/$toolchainVersion/$archiveName"
-
-          if ("${{ steps.windows-arm64-toolchain.outputs.cache-hit }}" -ne "true") {
-            Invoke-WebRequest -Uri $downloadUrl -OutFile $archivePath
-            $actualSha256 = (Get-FileHash -Path $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($actualSha256 -ne $expectedSha256) {
-              throw "llvm-mingw checksum mismatch: expected $expectedSha256, got $actualSha256"
-            }
-            Expand-Archive -Path $archivePath -DestinationPath $env:RUNNER_TEMP -Force
-          }
-
-          $binDirectory = Join-Path $toolchainRoot "bin"
-          $compiler = Join-Path $binDirectory "aarch64-w64-mingw32-gcc.exe"
-          if (-not (Test-Path $compiler -PathType Leaf)) {
-            throw "Windows ARM64 compiler not found after extraction: $compiler"
-          }
-          Add-Content -Path $env:GITHUB_PATH -Value $binDirectory -Encoding utf8
-          & $compiler --version
-
-      - name: Save Windows ARM64 CGO toolchain
-        if: matrix.os == 'windows' && matrix.arch == 'arm64' && steps.windows-arm64-toolchain.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
-        with:
-          path: ${{ runner.temp }}/llvm-mingw-20260616-ucrt-aarch64
-          key: llvm-mingw-windows-arm64-20260616-312593669435bd0b
-
-      - name: Restore Windows Go build cache
-        id: windows-go-build-cache
-        if: matrix.os == 'windows'
-        uses: actions/cache/restore@v5
-        with:
-          path: ~/AppData/Local/go-build
-          key: windows-go-build-${{ matrix.arch }}-${{ matrix.cache_salt }}-${{ hashFiles('go.mod', 'go.sum', '**/*.go', 'internal/plugin/web/**') }}
-          restore-keys: |
-            windows-go-build-${{ matrix.arch }}-${{ matrix.cache_salt }}-
 
       - name: Build macOS plugin
         if: matrix.os == 'darwin'
@@ -212,45 +126,7 @@ jobs:
             '
           rm -f dist/cpa-key-billing.h
 
-      - name: Build Windows plugin
-        if: matrix.os == 'windows'
-        shell: pwsh
-        env:
-          TARGET_ARCH: ${{ matrix.arch }}
-          TARGET_CC: ${{ matrix.cc }}
-          EXPECTED_CC_TARGET: ${{ matrix.cc_target }}
-        run: |
-          New-Item -ItemType Directory -Path dist -Force | Out-Null
-          & $env:TARGET_CC --version
-          if ($LASTEXITCODE -ne 0) {
-            throw "Failed to run Windows compiler: $env:TARGET_CC"
-          }
-          $compilerTarget = (& $env:TARGET_CC -dumpmachine).Trim()
-          if ($compilerTarget -ne $env:EXPECTED_CC_TARGET) {
-            throw "Expected compiler target $env:EXPECTED_CC_TARGET, got $compilerTarget"
-          }
-
-          $env:CGO_ENABLED = "1"
-          $env:GOOS = "windows"
-          $env:GOARCH = $env:TARGET_ARCH
-          $env:CC = $env:TARGET_CC
-          go build -buildvcs=false -trimpath -ldflags="-s -w -buildid=" `
-            -tags cshared -buildmode=c-shared `
-            -o dist/cpa-key-billing.dll ./cmd/cpa-key-billing
-          if ($LASTEXITCODE -ne 0) {
-            throw "Windows plugin build failed"
-          }
-          Remove-Item dist/cpa-key-billing.h -Force -ErrorAction SilentlyContinue
-
-      - name: Save Windows Go build cache
-        if: matrix.os == 'windows' && steps.windows-go-build-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
-        with:
-          path: ~/AppData/Local/go-build
-          key: windows-go-build-${{ matrix.arch }}-${{ matrix.cache_salt }}-${{ hashFiles('go.mod', 'go.sum', '**/*.go', 'internal/plugin/web/**') }}
-
-      - name: Verify and package Unix plugin
-        if: matrix.os != 'windows'
+      - name: Verify and package plugin
         env:
           TARGET_OS: ${{ matrix.os }}
           TARGET_ARCH: ${{ matrix.arch }}
@@ -267,43 +143,6 @@ jobs:
           store_archive="cpa-key-billing_${version}_${TARGET_OS}_${TARGET_ARCH}.zip"
           zip -j "$store_archive" "$binary"
           test "$(unzip -Z1 "$store_archive")" = "cpa-key-billing.${EXTENSION}"
-
-      - name: Verify and package Windows plugin
-        if: matrix.os == 'windows'
-        shell: pwsh
-        env:
-          TARGET_OS: ${{ matrix.os }}
-          TARGET_ARCH: ${{ matrix.arch }}
-          EXTENSION: ${{ matrix.extension }}
-          TARGET_OBJDUMP: ${{ matrix.objdump }}
-        run: |
-          $binary = "dist/cpa-key-billing.$($env:EXTENSION)"
-          if (-not (Test-Path $binary) -or (Get-Item $binary).Length -eq 0) {
-            throw "Missing or empty plugin binary: $binary"
-          }
-          Get-Item $binary
-
-          $exports = & $env:TARGET_OBJDUMP -p $binary
-          if ($LASTEXITCODE -ne 0) {
-            throw "Failed to inspect plugin binary with $env:TARGET_OBJDUMP"
-          }
-          if (-not ($exports | Select-String -Pattern "\bcliproxy_plugin_init\b" -Quiet)) {
-            throw "Plugin binary does not export cliproxy_plugin_init"
-          }
-          $version = $env:RELEASE_TAG -replace '^v', ''
-
-          $storeArchive = "cpa-key-billing_$($version)_$($env:TARGET_OS)_$($env:TARGET_ARCH).zip"
-          Compress-Archive -Path $binary -DestinationPath $storeArchive -Force
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $archive = [IO.Compression.ZipFile]::OpenRead($storeArchive)
-          try {
-            $entries = @($archive.Entries | ForEach-Object FullName)
-            if ($entries.Count -ne 1 -or $entries[0] -ne "cpa-key-billing.$($env:EXTENSION)") {
-              throw "Unexpected archive contents: $($entries -join ', ')"
-            }
-          } finally {
-            $archive.Dispose()
-          }
 
       - name: Upload release package
         uses: actions/upload-artifact@v7

@@ -158,10 +158,21 @@ download_host() {
 # release version, "latest" included.
 host_label=""
 host_binary=""
+host_version=""
+
+# host_supports_model_list_filter reports whether the running host routes model
+# listings through response interceptors, which CLIProxyAPI gained in v8. A
+# source or binary target is assumed current and checked.
+host_supports_model_list_filter() {
+  [[ -z "$host_version" ]] && return 0
+  [[ "${host_version%%.*}" -ge 8 ]] 2>/dev/null
+}
+
 resolve_host() {
   local target="$1"
   local host_dir="$2"
   local version archive
+  host_version=""
 
   if [[ -d "$target" ]]; then
     host_label="${target}（源码构建）"
@@ -181,6 +192,7 @@ resolve_host() {
   version="$(resolve_version "$target")"
   archive="$(download_host "$version")"
   tar -xzf "$archive" -C "$host_dir"
+  host_version="$version"
   host_label="v$version"
   host_binary="$(find "$host_dir" -type f -name 'cli-proxy-api' -perm -111 | head -n 1)"
 }
@@ -619,6 +631,57 @@ assert_route_model_policy() {
   assert_billing_entry "$port" "$((expected_count + 1))" chat chat \
     "gpt-5.6-sol" "gpt-5.6-sol" "$runtime_dir/model-restored-request-events.json" \
     "$runtime_dir/responses/model-restored.json" false
+}
+
+# assert_model_list_policy verifies that the model catalog a downstream key sees
+# through /v1/models is filtered to its routing rules and ordered ascending.
+# It makes no upstream requests, so it does not change the billed count.
+assert_model_list_policy() {
+  local port="$1" runtime_dir="$2"
+  local scope route baseline_file filtered_file dropped baseline_count filtered_count
+  baseline_file="$runtime_dir/models-baseline.json"
+  filtered_file="$runtime_dir/models-filtered.json"
+
+  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/keys/sync" \
+    -H "Content-Type: application/json" \
+    --data '{"keys":["e2e-downstream-key"]}' >/dev/null
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/keys" >"$runtime_dir/models-keys.json"
+  scope="$(jq -er 'first(.keys[] | select(.in_config) | .scope)' "$runtime_dir/models-keys.json")"
+
+  account_call "$port" "/v1/models" >"$baseline_file"
+  if ! jq -e '.data | length > 0 and (map(.id) == (map(.id) | sort))' "$baseline_file" >/dev/null; then
+    echo "未受限 KEY 的模型列表不是升序：$(jq -c '.data | map(.id)' "$baseline_file")" >&2
+    return 1
+  fi
+  baseline_count="$(jq -er '.data | length' "$baseline_file")"
+  dropped="$(jq -er '.data[0].id' "$baseline_file")"
+
+  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/routes" \
+    -H "Content-Type: application/json" \
+    --data "$(jq -nc --arg model "$dropped" '{name:"e2e-模型列表",rule:{denied_models:[$model]}}')" \
+    >"$runtime_dir/models-route.json"
+  route="$(jq -er '.route.id' "$runtime_dir/models-route.json")"
+  management_call PUT "$port" "/v0/management/plugins/cpa-key-billing/keys/routes" \
+    -H "Content-Type: application/json" \
+    --data "$(jq -nc --arg scope "$scope" --arg route "$route" '{scope:$scope,bindings:{route_ids:[$route]}}')" >/dev/null
+
+  account_call "$port" "/v1/models" >"$filtered_file"
+  filtered_count="$(jq -er '.data | length' "$filtered_file")"
+  if [[ "$filtered_count" -ne $((baseline_count - 1)) ]]; then
+    echo "受限 KEY 的模型列表未按可访问列表过滤：$(jq -c '.data | map(.id)' "$filtered_file")" >&2
+    return 1
+  fi
+  if ! jq -e --arg model "$dropped" '
+      .data | map(.id) as $ids
+      | ($ids | index($model)) == null and ($ids == ($ids | sort))' "$filtered_file" >/dev/null; then
+    echo "受限 KEY 的模型列表仍包含被拒模型或未升序：$(jq -c '.data | map(.id)' "$filtered_file")" >&2
+    return 1
+  fi
+
+  management_call PUT "$port" "/v0/management/plugins/cpa-key-billing/keys/routes" \
+    -H "Content-Type: application/json" \
+    --data "$(jq -nc --arg scope "$scope" '{scope:$scope,bindings:{}}')" >/dev/null
+  management_call DELETE "$port" "/v0/management/plugins/cpa-key-billing/routes?id=$route" >/dev/null
 }
 
 # Deny-only policies, direct allow conflicts, and exact exclusions must affect
@@ -1481,6 +1544,12 @@ run_target() {
   log_step "路由模型规则：无绑定状态、3 次拦截与恢复"
   assert_route_model_policy "$port" "$runtime_dir" "$expected_requests"
   expected_requests=$((expected_requests + 1))
+  if host_supports_model_list_filter; then
+    log_step "模型列表：按可访问列表过滤并升序"
+    assert_model_list_policy "$port" "$runtime_dir"
+  else
+    log_step "模型列表：${host_label} 不支持模型列表响应拦截，跳过"
+  fi
   log_step "路由凭证规则：整类与指定凭证均限制真实候选集"
   assert_route_credential_policy "$port" "$runtime_dir" "$expected_requests"
   expected_requests=$((expected_requests + 2))

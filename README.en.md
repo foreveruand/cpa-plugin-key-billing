@@ -2,8 +2,8 @@
   <h1>CPA Key Billing</h1>
   <p><strong>Per-key billing, subscription quotas, and routing for <a href="https://github.com/router-for-me/CLIProxyAPI">CLIProxyAPI</a>.</strong></p>
   <p>
-    <a href="https://github.com/haowang02/cpa-plugin-key-billing/releases/latest"><img src="https://img.shields.io/github/v/release/haowang02/cpa-plugin-key-billing?label=release" alt="Latest release"></a>
-    <a href="https://github.com/haowang02/cpa-plugin-key-billing/actions/workflows/check.yml"><img src="https://github.com/haowang02/cpa-plugin-key-billing/actions/workflows/check.yml/badge.svg" alt="CI status"></a>
+    <a href="https://github.com/foreveruand/cpa-plugin-key-billing/releases/latest"><img src="https://img.shields.io/github/v/release/foreveruand/cpa-plugin-key-billing?label=release" alt="Latest release"></a>
+    <a href="https://github.com/foreveruand/cpa-plugin-key-billing/actions/workflows/check.yml"><img src="https://github.com/foreveruand/cpa-plugin-key-billing/actions/workflows/check.yml/badge.svg" alt="CI status"></a>
     <img src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platforms: Windows, macOS, and Linux">
     <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
   </p>
@@ -17,6 +17,7 @@
 - Apply separate rates to requests that exceed a long-context input threshold.
 - Limit concurrent requests per API key.
 - Control access to models and upstream credentials with routing rules.
+- Each API key sees only its accessible models through the models endpoint, ordered ascending (requires CLIProxyAPI `8.0.0` or later).
 - Use model reference prices from [models.dev](https://models.dev/), with optional custom overrides.
 
 ## How it works
@@ -48,6 +49,7 @@ flowchart TB
 ## Requirements
 
 - CLIProxyAPI **7.2.143 or later**.
+- Filtering and sorting the models list per API key requires CLIProxyAPI **8.0.0 or later**; older versions keep billing, quotas, and request interception without it.
 - A CLIProxyAPI build with plugin support. Builds labeled `no-plugin` cannot load this plugin.
 
 ## Installation
@@ -57,18 +59,18 @@ Run the installer from your CLIProxyAPI directory.
 On macOS or Linux:
 
 ```sh
-curl -LsSf https://raw.githubusercontent.com/haowang02/cpa-plugin-key-billing/main/install.sh | sh
+curl -LsSf https://raw.githubusercontent.com/foreveruand/cpa-plugin-key-billing/main/install.sh | sh
 ```
 
 On Windows, stop CLIProxyAPI first, then run this in PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/haowang02/cpa-plugin-key-billing/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/foreveruand/cpa-plugin-key-billing/main/install.ps1 | iex
 ```
 
 The installer places the plugin in `plugins/` under the current directory. Restart CLIProxyAPI after installing or upgrading.
 
-For manual installation, download the archive for your platform from [Releases](https://github.com/haowang02/cpa-plugin-key-billing/releases/latest), then extract the library into CLIProxyAPI’s `plugins/` directory:
+For manual installation, download the archive for your platform from [Releases](https://github.com/foreveruand/cpa-plugin-key-billing/releases/latest), then extract the library into CLIProxyAPI’s `plugins/` directory:
 
 ```text
 plugins/cpa-key-billing.so       # Linux

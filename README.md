@@ -2,8 +2,8 @@
   <h1>CPA Key Billing</h1>
   <p><strong><a href="https://github.com/router-for-me/CLIProxyAPI">CLIProxyAPI</a> 下游 API Key 计费与订阅额度插件。</strong></p>
   <p>
-    <a href="https://github.com/haowang02/cpa-plugin-key-billing/releases/latest"><img src="https://img.shields.io/github/v/release/haowang02/cpa-plugin-key-billing?label=release" alt="Latest release"></a>
-    <a href="https://github.com/haowang02/cpa-plugin-key-billing/actions/workflows/check.yml"><img src="https://github.com/haowang02/cpa-plugin-key-billing/actions/workflows/check.yml/badge.svg" alt="CI status"></a>
+    <a href="https://github.com/foreveruand/cpa-plugin-key-billing/releases/latest"><img src="https://img.shields.io/github/v/release/foreveruand/cpa-plugin-key-billing?label=release" alt="Latest release"></a>
+    <a href="https://github.com/foreveruand/cpa-plugin-key-billing/actions/workflows/check.yml"><img src="https://github.com/foreveruand/cpa-plugin-key-billing/actions/workflows/check.yml/badge.svg" alt="CI status"></a>
     <img src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platforms: Windows, macOS, and Linux">
     <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
   </p>
@@ -17,6 +17,7 @@
 - 支持按输入 Token 阈值切换长上下文**阶梯计价**
 - 支持按 API Key 设置**最大并发请求数**
 - 支持为每个 API Key 绑定**路由规则**，限制模型访问范围和上游凭证
+- 每个 API Key 通过 models 接口获取的模型列表，会按该 Key 的可访问范围过滤并升序排列（需 CLIProxyAPI `8.0.0` 或更高版本）
 - 可从 [models.dev](https://models.dev/) 获取模型参考价
 
 ## 工作原理
@@ -48,6 +49,7 @@ flowchart TB
 ## 环境要求
 
 - CLIProxyAPI `7.2.143` 或更高版本，建议使用最新版本
+- 按 API Key 过滤并排序 models 模型列表需要 CLIProxyAPI `8.0.0` 或更高版本；更低版本仍保留计费、额度与请求拦截等功能
 - 使用支持插件的 CLIProxyAPI 构建，不要使用 no-plugin 版本
 
 ## 安装
@@ -61,13 +63,13 @@ CPA 管理面板（CPAMC 或 CPAMP）插件商店搜索 `cpa-key-billing`。
 在 CLIProxyAPI 根目录运行。macOS 和 Linux 使用：
 
 ```sh
-curl -LsSf https://raw.githubusercontent.com/haowang02/cpa-plugin-key-billing/main/install.sh | sh
+curl -LsSf https://raw.githubusercontent.com/foreveruand/cpa-plugin-key-billing/main/install.sh | sh
 ```
 
 Windows 请先停止 CLIProxyAPI，再在 PowerShell 中运行：
 
 ```powershell
-irm https://raw.githubusercontent.com/haowang02/cpa-plugin-key-billing/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/foreveruand/cpa-plugin-key-billing/main/install.ps1 | iex
 ```
 
 安装脚本会将插件安装到当前目录的 `plugins/`。安装或升级完成后需要重启 CLIProxyAPI。

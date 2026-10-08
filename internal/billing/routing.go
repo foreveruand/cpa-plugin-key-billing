@@ -70,6 +70,23 @@ func (d RoutingDecision) AllowsModel() bool {
 		(len(d.Models) == 0 || containsRouteValue(d.Models, d.Model))
 }
 
+// AllowsModelName applies the same allow/deny rule as AllowsModel to an
+// explicit model name, for callers that hold the name rather than d.Model. An
+// empty allowlist is unrestricted; deny entries always win.
+func (d RoutingDecision) AllowsModelName(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	return !containsRouteValue(d.DeniedModels, name) &&
+		(len(d.Models) == 0 || containsRouteValue(d.Models, name))
+}
+
+// DeniesModelName reports whether the model name is explicitly denied.
+func (d RoutingDecision) DeniesModelName(name string) bool {
+	return containsRouteValue(d.DeniedModels, strings.TrimSpace(name))
+}
+
 func containsRouteValue(values []string, value string) bool {
 	return slices.ContainsFunc(values, func(item string) bool { return strings.EqualFold(item, value) })
 }

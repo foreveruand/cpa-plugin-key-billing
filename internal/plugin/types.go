@@ -18,12 +18,12 @@ const (
 const (
 	PluginID   = "cpa-key-billing"
 	PluginName = "cpa-key-billing"
-	Version    = "1.3.19"
+	Version    = "1.3.20"
 
 	MenuLabel       = "API Key Billing"
 	MenuDescription = "Manage downstream API key routing, billing, concurrency limits, subscription quotas, and usage"
 
-	GitHubRepository = "https://github.com/haowang02/cpa-plugin-key-billing"
+	GitHubRepository = "https://github.com/foreveruand/cpa-plugin-key-billing"
 )
 
 const (
@@ -34,6 +34,8 @@ const (
 	MethodRequestInterceptAfter  = "request.intercept_after"
 	MethodRequestComplete        = "request.complete"
 	MethodSchedulerPick          = "scheduler.pick"
+
+	MethodResponseInterceptAfter = "response.intercept_after"
 
 	MethodUsageHandle = "usage.handle"
 
@@ -97,6 +99,7 @@ type ConfigField struct {
 type Capabilities struct {
 	RequestInterceptor     bool `json:"request_interceptor"`
 	RequestLifecyclePlugin bool `json:"request_lifecycle_plugin"`
+	ResponseInterceptor    bool `json:"response_interceptor"`
 	UsagePlugin            bool `json:"usage_plugin"`
 	ManagementAPI          bool `json:"management_api"`
 	Scheduler              bool `json:"scheduler"`
@@ -142,6 +145,26 @@ type RequestInterceptResponse struct {
 	StatusCode      int         `json:"StatusCode,omitempty"`
 	ResponseHeaders http.Header `json:"ResponseHeaders,omitempty"`
 	ResponseBody    []byte      `json:"ResponseBody,omitempty"`
+}
+
+// ResponseInterceptRequest describes a successful non-streaming response. A
+// model listing arrives with empty Model/RequestedModel and empty Metadata, so
+// the downstream key can only be recovered from RequestHeaders.
+type ResponseInterceptRequest struct {
+	RequestID      string         `json:"RequestID"`
+	SourceFormat   string         `json:"SourceFormat"`
+	Model          string         `json:"Model"`
+	RequestedModel string         `json:"RequestedModel"`
+	Stream         bool           `json:"Stream"`
+	RequestHeaders http.Header    `json:"RequestHeaders"`
+	Body           []byte         `json:"Body"`
+	StatusCode     int            `json:"StatusCode"`
+	Metadata       map[string]any `json:"Metadata"`
+}
+
+// ResponseInterceptResponse replaces the response body only when non-empty.
+type ResponseInterceptResponse struct {
+	Body []byte `json:"Body,omitempty"`
 }
 
 type UsageRecord struct {
