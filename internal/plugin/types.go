@@ -18,12 +18,12 @@ const (
 const (
 	PluginID   = "cpa-key-billing"
 	PluginName = "cpa-key-billing"
-	Version    = "1.4.15"
+	Version    = "1.4.16"
 
 	MenuLabel       = "CPA Key Billing"
 	MenuDescription = "Manage downstream API key routing, billing, concurrency limits, subscription quotas, and usage"
 
-	GitHubRepository = "https://github.com/haowang02/cpa-plugin-key-billing"
+	GitHubRepository = "https://github.com/foreveruand/cpa-plugin-key-billing"
 )
 
 const (
