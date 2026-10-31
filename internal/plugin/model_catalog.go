@@ -55,26 +55,29 @@ func (a *App) filterModelCatalog(req ResponseInterceptRequest) []byte {
 		return nil
 	}
 	decision := a.store.ResolveRouting(scope, "", "")
-	if !decision.RestrictsModels() && !decision.RestrictsCredentials() {
-		return nil
-	}
 	catalog, ok := parseModelCatalog(req.Body)
 	if !ok {
 		return nil
 	}
-	keep := a.store.AllowedModels(scope, catalog.ids)
-	if decision.RestrictsCredentials() {
-		provided, err := a.credentialModels(decision)
-		if err != nil {
-			a.store.AddPluginLog(billing.PluginLogError, "Model catalog ignores credential rules: %v", err)
-		} else {
-			for i, id := range catalog.ids {
-				keep[i] = keep[i] && provided[id]
+	keep := make([]bool, len(catalog.ids))
+	for i := range keep {
+		keep[i] = true
+	}
+	if decision.RestrictsModels() || decision.RestrictsCredentials() {
+		keep = a.store.AllowedModels(scope, catalog.ids)
+		if decision.RestrictsCredentials() {
+			provided, err := a.credentialModels(decision)
+			if err != nil {
+				a.store.AddPluginLog(billing.PluginLogError, "Model catalog ignores credential rules: %v", err)
+			} else {
+				for i, id := range catalog.ids {
+					keep[i] = keep[i] && provided[id]
+				}
 			}
 		}
 	}
 	body, listed := catalog.filter(keep)
-	if body != nil {
+	if body != nil && listed < len(keep) {
 		a.store.AddPluginLog(billing.PluginLogDebug, "Model catalog for %s lists %d of %d models", a.store.KeyDescription(scope), listed, len(keep))
 	}
 	return body
@@ -170,27 +173,40 @@ func uncloakedModelID(id string) string {
 	return string(runes)
 }
 
-// filter drops the entries keep rejects and returns the new body, which is nil
-// when every entry stays. Claude catalogs also name their first and last IDs.
+// filter drops the entries keep rejects, sorts the rest by model ID, and
+// returns the new body, which is nil when every entry stays in place. Claude
+// catalogs also name their first and last IDs.
 func (c modelCatalog) filter(keep []bool) (body []byte, listed int) {
-	kept := make([]json.RawMessage, 0, len(c.entries))
+	type keptEntry struct {
+		entry json.RawMessage
+		id    string
+		index int
+	}
+	kept := make([]keptEntry, 0, len(c.entries))
 	for i, entry := range c.entries {
 		if keep[i] {
-			kept = append(kept, entry)
+			kept = append(kept, keptEntry{entry: entry, id: c.ids[i], index: i})
 		}
 	}
-	if len(kept) == len(c.entries) {
+	slices.SortStableFunc(kept, func(a, b keptEntry) int { return strings.Compare(a.id, b.id) })
+	entries := make([]json.RawMessage, len(kept))
+	unchanged := len(kept) == len(c.entries)
+	for i, entry := range kept {
+		entries[i] = entry.entry
+		unchanged = unchanged && entry.index == i
+	}
+	if unchanged {
 		return nil, len(kept)
 	}
 	fields := make(map[string]any, len(c.fields))
 	for name, value := range c.fields {
 		fields[name] = value
 	}
-	fields[c.list] = kept
+	fields[c.list] = entries
 	if _, claude := c.fields["first_id"]; claude {
 		fields["first_id"], fields["last_id"] = "", ""
-		if len(kept) > 0 {
-			fields["first_id"], fields["last_id"] = catalogEntryID(kept[0]), catalogEntryID(kept[len(kept)-1])
+		if len(entries) > 0 {
+			fields["first_id"], fields["last_id"] = catalogEntryID(entries[0]), catalogEntryID(entries[len(entries)-1])
 		}
 	}
 	var buffer bytes.Buffer

@@ -64,7 +64,7 @@ func TestModelCatalogKeepsAllowedModelsInEveryFormat(t *testing.T) {
 		want        []string
 		first, last string
 	}{
-		{"openai", `{"object":"list","data":[{"id":"gpt-5.5"},{"id":"gpt-5.6"},{"id":"deepseek-v4"}]}`, []string{"gpt-5.5", "deepseek-v4"}, "", ""},
+		{"openai", `{"object":"list","data":[{"id":"gpt-5.5"},{"id":"gpt-5.6"},{"id":"deepseek-v4"}]}`, []string{"deepseek-v4", "gpt-5.5"}, "", ""},
 		{"codex", `{"models":[{"slug":"gpt-5.6"},{"slug":"gpt-5.5"}]}`, []string{"gpt-5.5"}, "", ""},
 		{"gemini", `{"models":[{"name":"models/gpt-5.5"},{"name":"models/gpt-5.6"}]}`, []string{"gpt-5.5"}, "", ""},
 		{"claude", `{"data":[{"id":"claude-fable-5-dd-4v-keespeed"},{"id":"claude-fable-5-dd-5.5-tpg"},{"id":"claude-fable-5-dd-6.5-tpg"}],` +
@@ -84,6 +84,87 @@ func TestModelCatalogKeepsAllowedModelsInEveryFormat(t *testing.T) {
 				t.Fatalf("first/last = %+v, %v", bounds, err)
 			}
 		})
+	}
+}
+
+// A key without routing rules still receives an ascending catalog, because
+// model pickers list it directly; an already sorted catalog stays untouched.
+func TestModelCatalogSortsModelsForUnrestrictedKeys(t *testing.T) {
+	app := catalogApp(t, billing.RouteRule{})
+	for _, test := range []struct {
+		name, body string
+		want       []string
+		unchanged  bool
+	}{
+		{"openai unsorted", `{"object":"list","data":[{"id":"gpt-5.6"},{"id":"deepseek-v4"},{"id":"gpt-5.5"}]}`,
+			[]string{"deepseek-v4", "gpt-5.5", "gpt-5.6"}, false},
+		{"openai sorted", `{"data":[{"id":"deepseek-v4"},{"id":"gpt-5.5"},{"id":"gpt-5.6"}]}`, nil, true},
+		{"codex slugs", `{"models":[{"slug":"gpt-5.6"},{"slug":"deepseek-v4"}]}`, []string{"deepseek-v4", "gpt-5.6"}, false},
+		{"gemini names", `{"models":[{"name":"models/gpt-5.6"},{"name":"models/gpt-5.5"}]}`, []string{"gpt-5.5", "gpt-5.6"}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := interceptCatalog(t, app, bearer(testAPIKey), test.body)
+			if test.unchanged {
+				if body != nil {
+					t.Fatalf("sorted catalog was rewritten: %s", body)
+				}
+				return
+			}
+			if ids := catalogIDs(t, body); !slices.Equal(ids, test.want) {
+				t.Fatalf("ids = %v, want %v (body=%s)", ids, test.want, body)
+			}
+		})
+	}
+}
+
+// Claude catalogs name their first and last IDs, which follow the sorted order.
+func TestModelCatalogSortsClaudeBounds(t *testing.T) {
+	app := catalogApp(t, billing.RouteRule{})
+	const catalog = `{"data":[{"id":"claude-fable-5-dd-6.5-tpg"},{"id":"claude-fable-5-dd-4v-keespeed"}],` +
+		`"first_id":"claude-fable-5-dd-6.5-tpg","has_more":false,"last_id":"claude-fable-5-dd-4v-keespeed"}`
+	body := interceptCatalog(t, app, bearer(testAPIKey), catalog)
+	if ids := catalogIDs(t, body); !slices.Equal(ids, []string{"deepseek-v4", "gpt-5.6"}) {
+		t.Fatalf("ids = %v (body=%s)", ids, body)
+	}
+	var bounds struct {
+		FirstID string `json:"first_id"`
+		LastID  string `json:"last_id"`
+	}
+	if err := json.Unmarshal(body, &bounds); err != nil {
+		t.Fatal(err)
+	}
+	if bounds.FirstID != "claude-fable-5-dd-4v-keespeed" || bounds.LastID != "claude-fable-5-dd-6.5-tpg" {
+		t.Fatalf("first/last = %+v", bounds)
+	}
+}
+
+// Equal model IDs keep their original relative order.
+func TestModelCatalogFilterSortsStably(t *testing.T) {
+	catalog, ok := parseModelCatalog([]byte(`{"data":[{"id":"b","name":"first"},{"id":"a"},{"id":"b","name":"second"}]}`))
+	if !ok {
+		t.Fatal("unparseable catalog")
+	}
+	body, listed := catalog.filter([]bool{true, true, true})
+	if listed != 3 {
+		t.Fatalf("listed = %d, want 3", listed)
+	}
+	var result struct {
+		Data []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatal(err)
+	}
+	want := []struct{ id, name string }{{"a", ""}, {"b", "first"}, {"b", "second"}}
+	if len(result.Data) != len(want) {
+		t.Fatalf("entries = %+v", result.Data)
+	}
+	for i, entry := range result.Data {
+		if entry.ID != want[i].id || entry.Name != want[i].name {
+			t.Fatalf("entry %d = %+v, want %+v", i, entry, want[i])
+		}
 	}
 }
 
